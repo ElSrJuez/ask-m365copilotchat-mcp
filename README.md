@@ -29,6 +29,8 @@ API Client / MCP Tool
 
 3. **`mcp_server.py`** -- An MCP (Model Context Protocol) server exposing a single `AskM365Copilot` tool. Runs over stdio and acts as a thin HTTP client to the local bridge. Designed for use with Claude Code or any MCP-compatible client.
 
+**New here?** See the [Quick Start Guide](QUICKSTART.md) for step-by-step setup with common pitfalls.
+
 ## Prerequisites
 
 - Python 3.10+
@@ -86,6 +88,7 @@ The `AskM365Copilot` tool then becomes available in your session.
 server.py              FastAPI bridge server (WebSocket + HTTP)
 mcp_server.py          MCP stdio server (AskM365Copilot tool)
 requirements.txt       Python dependencies
+QUICKSTART.md          Step-by-step setup guide with common pitfalls
 CONTRIBUTING.md        Contribution guidelines
 CODE_OF_CONDUCT.md     Community standards
 extension/
