@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "M365 Copilot Chat Bridge",
+  "version": "0.1.0",
+  "description": "Connects M365 Copilot Chat to the local bridge server for prompt automation.",
+  "permissions": [
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback"
+  ],
+  "host_permissions": [
+    "https://m365.cloud.microsoft/*",
+    "https://microsoft365.com/*",
+    "https://www.microsoft365.com/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "header_rules",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://m365.cloud.microsoft/*",
+        "https://microsoft365.com/*",
+        "https://www.microsoft365.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
