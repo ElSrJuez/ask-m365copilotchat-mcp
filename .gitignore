@@ -5,3 +5,6 @@ __pycache__/
 .mcp.json
 opencode.jsonc
 extension/_metadata/
+.vscode
+*.jsonc
+scratchpad/
