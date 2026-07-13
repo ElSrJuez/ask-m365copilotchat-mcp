@@ -4,7 +4,7 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-green.svg)](https://www.python.org)
 [![JavaScript](https://img.shields.io/badge/JavaScript-ES6+-yellow.svg)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 
-A local bridge that exposes Microsoft 365 Copilot Chat as an OpenAI-compatible API endpoint and MCP tool. Useful for piping prompts (e.g. code snippets for review) into M365 Copilot Chat programmatically, avoiding manual copy-paste between apps.
+A local bridge that lets you use Microsoft 365 Copilot Chat programmatically instead of manually copy-pasting between apps. It runs a single local HTTP listener that exposes an OpenAI-compatible endpoint, an MCP endpoint, and the browser bridge needed to drive the authenticated chat session.
 
 ## How It Works
 
@@ -23,11 +23,11 @@ API Client / MCP Tool
   M365 Copilot Chat UI
 ```
 
-1. **`server.py`** -- A FastAPI backend that accepts OpenAI-format chat completion requests and streams responses back as Server-Sent Events (SSE). Communicates with the browser via a persistent WebSocket using a single-reader/queue pattern to avoid contention.
+1. **`server.py`** -- The main runtime. Starts one FastAPI listener on `127.0.0.1:8000`, serves the OpenAI-compatible endpoint at `/v1/chat/completions`, mounts the MCP HTTP endpoint at `/mcp`, and accepts the browser bridge connection at `/ws`.
 
-2. **`extension/`** -- A Manifest V3 browser extension that connects the Copilot Chat page to the local bridge. The content script receives prompts over the WebSocket, pastes them into the Copilot Lexical editor, submits via Enter key, and captures the streamed response using a MutationObserver. The extension is vanilla JavaScript with no build step.
+2. **`extension/`** -- A Manifest V3 browser extension that connects the Copilot Chat page to the local bridge. The content script receives prompts over the WebSocket, pastes them into the page editor, submits via Enter key, and captures the streamed response using a MutationObserver. The extension is vanilla JavaScript with no build step.
 
-3. **`mcp_server.py`** -- An MCP (Model Context Protocol) server exposing a single `AskM365Copilot` tool. Runs over stdio and acts as a thin HTTP client to the local bridge. Designed for use with Claude Code or any MCP-compatible client.
+3. **`mcp_server.py`** -- Defines the MCP server and the `AskM365Copilot` tool that `server.py` mounts for HTTP use at `/mcp`.
 
 **New here?** See the [Quick Start Guide](QUICKSTART.md) for step-by-step setup with common pitfalls.
 
@@ -63,30 +63,38 @@ python -m server
 
 The server listens on localhost port 8000.
 
+Current surfaces:
+
+- OpenAI-compatible HTTP: `/v1/chat/completions`
+- MCP over HTTP: `/mcp`
+- Browser WebSocket: `/ws`
+
 ## Usage
 
-**Direct API call** -- Send a POST request to the `/v1/chat/completions` endpoint in OpenAI chat completion format with `stream: true`. Any tool or library that supports a custom OpenAI base URL can point at the local server.
+**Direct API call** -- Send a `POST` request to `/v1/chat/completions` in OpenAI chat completion format with `stream: true`. Any tool or library that supports a custom OpenAI base URL can point at the local server.
 
-**MCP tool** -- Register the MCP server in your client (e.g. Claude Code):
+**MCP over HTTP** -- Point your MCP client at:
 
-```bash
-claude mcp add m365copilot -- python mcp_server.py
+```text
+http://127.0.0.1:8000/mcp
 ```
 
-The `AskM365Copilot` tool then becomes available in your session.
+The server exposes one tool, `AskM365Copilot`.
 
 ## Architecture Notes
 
 - **Single WebSocket reader** -- One coroutine reads all incoming browser messages into an `asyncio.Queue`, eliminating competing-reader race conditions.
 - **Request serialization** -- An `asyncio.Lock` ensures only one prompt flows through the bridge at a time (returns HTTP 429 if busy).
 - **Observer lifecycle** -- The MutationObserver includes a content-received guard (prevents premature completion), a 500ms debounce, and a 90-second safety timeout.
-- **Decoupled MCP layer** -- The MCP server communicates with the bridge exclusively over HTTP, keeping it independent of WebSocket internals.
+- **Single local listener** -- The OpenAI-compatible API, MCP HTTP endpoint, and browser WebSocket all share one local server.
+- **Shared MCP definition** -- `mcp_server.py` defines the MCP server once, and `server.py` exposes that server over HTTP.
 
 ## Project Structure
 
 ```
-server.py              FastAPI bridge server (WebSocket + HTTP)
-mcp_server.py          MCP stdio server (AskM365Copilot tool)
+server.py              Main FastAPI runtime (OpenAI HTTP + MCP HTTP + WebSocket)
+mcp_server.py          MCP server definition (mounted by server.py)
+listener_config.py     Shared local listener host/port/path constants
 requirements.txt       Python dependencies
 QUICKSTART.md          Step-by-step setup guide with common pitfalls
 CONTRIBUTING.md        Contribution guidelines
@@ -107,7 +115,7 @@ extension/
 
 **Prompt is sent but response is empty** -- The DOM selectors may have changed if Microsoft updated the Copilot Chat UI. Open the browser console and check for errors from `content.js`.
 
-**MCP tool returns "Cannot connect to bridge server"** -- The bridge server must be running before the MCP tool can be used. Start `server.py` first.
+**MCP tool returns "Cannot connect to bridge server"** -- The bridge server must be running before the tool can reach the browser session. Start `python -m server` first.
 
 ## Limitations
 

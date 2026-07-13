@@ -3,4 +3,8 @@ __pycache__/
 *.pyc
 .claude/
 .mcp.json
+opencode.jsonc
 extension/_metadata/
+.vscode
+*.jsonc
+scratchpad/
