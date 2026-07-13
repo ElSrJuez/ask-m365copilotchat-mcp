@@ -36,8 +36,9 @@ You should see:
 
 ```
 M365 Copilot Chat Bridge starting up...
-Endpoint URL: http://127.0.0.1:8000/v1/chat/completions
-WebSocket Listener: ws://127.0.0.1:8000/ws
+OpenAI Endpoint: http://127.0.0.1:8000/v1/chat/completions
+Browser WebSocket: ws://127.0.0.1:8000/ws
+MCP HTTP Endpoint: http://127.0.0.1:8000/mcp
 ```
 
 Then within a few seconds, the browser console should show the green message: **"M365 Copilot Chat Bridge: Connected to local proxy server."**
@@ -66,19 +67,17 @@ You should see SSE chunks streaming back with the Copilot Chat response.
 
 **Common mistake:** The first response after loading a page with an existing conversation may echo the previous answer. This is a known issue — the second request onwards works correctly.
 
-## Step 5: Register the MCP tool (optional)
+## Step 5: Use MCP (optional)
 
-If you're using Claude Code:
+If your MCP client supports HTTP, point it at:
 
-```bash
-claude mcp add m365copilot -- python mcp_server.py
+```text
+http://127.0.0.1:8000/mcp
 ```
 
-Then restart your Claude Code session. The `AskM365Copilot` tool becomes available.
+The server exposes one tool, `AskM365Copilot`.
 
-**Common mistake:** Forgetting to restart Claude Code after registering. MCP servers only load at session startup.
-
-**Common mistake:** The MCP server can't reach the bridge. Make sure `server.py` is running before using the MCP tool.
+**Common mistake:** Your MCP client can reach `/mcp`, but no browser tab is connected yet. Open M365 Copilot Chat so the extension can attach to `/ws`.
 
 ## Order matters
 
@@ -86,7 +85,7 @@ The startup sequence matters:
 
 1. **Server first** — `python -m server`
 2. **Browser second** — Navigate to M365 Copilot Chat (extension auto-connects)
-3. **Client last** — Send requests via API or MCP tool
+3. **Client last** — Send requests via API or MCP
 
 If the extension connects before the server is ready, it retries every 5 seconds automatically. But the server must be running before any API or MCP requests will work.
 
