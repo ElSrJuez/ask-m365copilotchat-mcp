@@ -1,0 +1,11 @@
+HOST = "127.0.0.1"
+PORT = 8000
+OPENAI_PATH = "/v1/chat/completions"
+WS_PATH = "/ws"
+MCP_PATH = "/mcp"
+
+HTTP_BASE_URL = f"http://{HOST}:{PORT}"
+WS_BASE_URL = f"ws://{HOST}:{PORT}"
+OPENAI_URL = f"{HTTP_BASE_URL}{OPENAI_PATH}"
+WS_URL = f"{WS_BASE_URL}{WS_PATH}"
+MCP_URL = f"{HTTP_BASE_URL}{MCP_PATH}"

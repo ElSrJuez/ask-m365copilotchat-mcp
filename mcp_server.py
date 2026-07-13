@@ -1,10 +1,12 @@
 import json
+
 import httpx
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("AskM365Copilot")
+from listener_config import OPENAI_URL
 
-BRIDGE_URL = "http://127.0.0.1:8000/v1/chat/completions"
+mcp = FastMCP("AskM365Copilot", streamable_http_path="/")
+
 REQUEST_TIMEOUT = 120.0
 
 
@@ -14,7 +16,7 @@ async def AskM365Copilot(question: str) -> str:
 
     The question is sent to M365 Copilot Chat within your authenticated session through
     a browser extension that pastes prompts and sends back the responses. Requires
-    server.py to be running and the browser extension to be connected.
+    the bridge server to be running and the browser extension to be connected.
 
     Args:
         question: The question or prompt to send to M365 Copilot Chat.
@@ -32,7 +34,7 @@ async def AskM365Copilot(question: str) -> str:
     async with httpx.AsyncClient() as client:
         try:
             async with client.stream(
-                "POST", BRIDGE_URL,
+                "POST", OPENAI_URL,
                 json=payload,
                 timeout=REQUEST_TIMEOUT
             ) as response:
@@ -58,7 +60,7 @@ async def AskM365Copilot(question: str) -> str:
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
         except httpx.ConnectError:
-            return "Error: Cannot connect to the bridge server at localhost:8000. Please ensure server.py is running."
+            return "Error: Cannot connect to the bridge server. Please ensure server.py is running."
         except httpx.ReadTimeout:
             return "Error: Request timed out waiting for M365 Copilot Chat response."
 
@@ -66,7 +68,3 @@ async def AskM365Copilot(question: str) -> str:
         return "Error: Received empty response from M365 Copilot Chat."
 
     return "".join(collected_text)
-
-
-if __name__ == "__main__":
-    mcp.run()
