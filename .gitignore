@@ -4,6 +4,7 @@ __pycache__/
 .claude/
 .mcp.json
 opencode.jsonc
+ppt_annotator/.env
 extension/_metadata/
 .vscode
 *.jsonc
