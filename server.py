@@ -16,8 +16,9 @@ class BridgeRequestError(Exception):
 
 
 class BridgeRequestSession:
-    def __init__(self, prompt: str):
+    def __init__(self, prompt: str, diagnostics: bool = False):
         self.prompt = prompt
+        self.diagnostics = diagnostics
         self.ws = None
         self.lock_acquired = False
 
@@ -41,7 +42,7 @@ class BridgeRequestSession:
                 break
 
         try:
-            await self.ws.send_json({"type": "SEND_PROMPT", "text": self.prompt})
+            await self.ws.send_json({"type": "SEND_PROMPT", "text": self.prompt, "diagnostics": self.diagnostics})
         except Exception as exc:
             raise BridgeRequestError(503, "M365 Copilot Chat browser tab is not connected.") from exc
 
@@ -50,14 +51,16 @@ class BridgeRequestSession:
             request_lock.release()
             self.lock_acquired = False
 
-    async def iter_chunks(self):
+    async def iter_messages(self):
         try:
             while True:
                 msg = await msg_queue.get()
                 msg_type = msg.get("type")
 
                 if msg_type == "CHUNK":
-                    yield msg.get("text", "")
+                    yield {"kind": "chunk", "text": msg.get("text", "")}
+                elif msg_type == "DIAG" and self.diagnostics:
+                    yield {"kind": "diagnostic", "observation": msg.get("observation", {})}
                 elif msg_type == "DONE":
                     print("Completed response streaming successfully.")
                     break
@@ -68,8 +71,8 @@ class BridgeRequestSession:
             print(f"Error during streaming loop: {str(exc)}")
 
 
-def create_bridge_session(prompt: str) -> BridgeRequestSession:
-    return BridgeRequestSession(prompt)
+def create_bridge_session(prompt: str, diagnostics: bool = False) -> BridgeRequestSession:
+    return BridgeRequestSession(prompt, diagnostics=diagnostics)
 
 
 def bridge_error_response(exc: BridgeRequestError) -> JSONResponse:
@@ -113,25 +116,30 @@ async def websocket_endpoint(websocket: WebSocket):
 async def chat_completions(request: Request):
     body = await request.json()
     prompt = body["messages"][-1]["content"] if "messages" in body else ""
+    diagnostics = bool(body.get("diagnostics", False))
     print(f"\nReceived incoming API prompt: {prompt[:50]}...")
 
     try:
-        session = create_bridge_session(prompt)
+        session = create_bridge_session(prompt, diagnostics=diagnostics)
         await session.open()
     except BridgeRequestError as exc:
         return bridge_error_response(exc)
 
     async def event_stream():
         try:
-            async for chunk in session.iter_chunks():
-                chunk_payload = {
-                    "choices": [{
-                        "delta": {
-                            "content": chunk
-                        }
-                    }]
-                }
-                yield f"data: {json.dumps(chunk_payload)}\n\n"
+            async for message in session.iter_messages():
+                if message["kind"] == "chunk":
+                    chunk_payload = {
+                        "choices": [{
+                            "delta": {
+                                "content": message["text"]
+                            }
+                        }]
+                    }
+                    yield f"data: {json.dumps(chunk_payload)}\n\n"
+                elif message["kind"] == "diagnostic":
+                    diagnostic_payload = {"diagnostic": message["observation"]}
+                    yield f"data: {json.dumps(diagnostic_payload)}\n\n"
         finally:
             await session.close()
 

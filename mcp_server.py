@@ -11,7 +11,7 @@ REQUEST_TIMEOUT = 120.0
 
 
 @mcp.tool()
-async def AskM365Copilot(question: str) -> str:
+async def AskM365Copilot(question: str, diagnostics: bool = False) -> str:
     """Ask a question to Microsoft 365 Copilot Chat via the browser bridge.
 
     The question is sent to M365 Copilot Chat within your authenticated session through
@@ -20,16 +20,19 @@ async def AskM365Copilot(question: str) -> str:
 
     Args:
         question: The question or prompt to send to M365 Copilot Chat.
+        diagnostics: When true, return a JSON string containing the answer plus the live diagnostic observations.
 
     Returns:
-        The complete text response from M365 Copilot Chat.
+        The complete text response from M365 Copilot Chat, or a JSON string with diagnostics when requested.
     """
     payload = {
         "messages": [{"role": "user", "content": question}],
-        "stream": True
+        "stream": True,
+        "diagnostics": diagnostics
     }
 
     collected_text = []
+    collected_diagnostics = []
 
     async with httpx.AsyncClient() as client:
         try:
@@ -54,6 +57,9 @@ async def AskM365Copilot(question: str) -> str:
                         break
                     try:
                         chunk = json.loads(data)
+                        if isinstance(chunk, dict) and "diagnostic" in chunk:
+                            collected_diagnostics.append(chunk["diagnostic"])
+                            continue
                         delta_content = chunk["choices"][0]["delta"].get("content", "")
                         if delta_content:
                             collected_text.append(delta_content)
@@ -65,6 +71,11 @@ async def AskM365Copilot(question: str) -> str:
             return "Error: Request timed out waiting for M365 Copilot Chat response."
 
     if not collected_text:
+        if diagnostics:
+            return json.dumps({"content": "", "error": "Received empty response from M365 Copilot Chat.", "diagnostics": collected_diagnostics}, ensure_ascii=False)
         return "Error: Received empty response from M365 Copilot Chat."
+
+    if diagnostics:
+        return json.dumps({"content": "".join(collected_text), "diagnostics": collected_diagnostics}, ensure_ascii=False)
 
     return "".join(collected_text)

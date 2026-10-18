@@ -28,12 +28,19 @@
             }
         };
 
+        ws.onerror = (event) => {
+            console.error("M365 Copilot Chat Bridge websocket error:", event);
+        };
+
         ws.onmessage = async (event) => {
             try {
                 const data = JSON.parse(event.data);
                 if (data.type === "SEND_PROMPT") {
                     console.log("User Code snip pasted...");
-                    await pasteAndSubmit(data.text);
+                    if (data.diagnostics === true) {
+                        sendObservation({ phase: "prompt_received", diagnosticsEnabled: true });
+                    }
+                    await pasteAndSubmit(data.text, data.diagnostics === true);
                 }
             } catch (err) {
                 console.error("Error handling incoming ws message:", err);
@@ -41,7 +48,17 @@
         };
     }
 
-    async function pasteAndSubmit(promptText) {
+    function sendMessage(message) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(message));
+        }
+    }
+
+    function sendObservation(observation) {
+        sendMessage({ type: "DIAG", observation: observation });
+    }
+
+    async function pasteAndSubmit(promptText, diagnosticsEnabled) {
         const inputEl = document.querySelector('#m365-chat-editor-target-element, span[contenteditable="true"][data-lexical-editor="true"]');
         if (!inputEl) {
             console.error("Could not find the prompt input text element.");
@@ -56,6 +73,11 @@
 
         inputEl.dispatchEvent(new Event('input', { bubbles: true }));
 
+        const assistantBubbleSelector = '[data-testid="markdown-reply"][data-message-type="Chat"]';
+        const baselineBubbleTexts = new Map(
+            Array.from(document.querySelectorAll(assistantBubbleSelector), (bubble) => [bubble, bubble.innerText])
+        );
+
         // Submit by pressing Enter — the send button only appears after React state
         // catches up, so dispatching a keypress is more reliable
         setTimeout(() => {
@@ -64,29 +86,85 @@
                 bubbles: true, cancelable: true
             }));
             console.log("Prompt submitted via Enter key. Starting response capture...");
-            startResponseCapture();
+            startResponseCapture(baselineBubbleTexts, diagnosticsEnabled);
         }, 300);
     }
 
-    function startResponseCapture() {
+    function startResponseCapture(baselineBubbleTexts, diagnosticsEnabled) {
+        const assistantBubbleSelector = '[data-testid="markdown-reply"][data-message-type="Chat"]';
+        const captureStartedAt = Date.now();
+        const snapshotSamples = [];
+
+        let targetBubble = null;
+        let targetBaselineText = "";
         let lastLength = 0;
+        let firstTextSnapshot = null;
+        let snapshotCount = 0;
+        let emittedChunkCount = 0;
+        let emittedTextLength = 0;
         let hasReceivedContent = false;
         let doneDebounceTimer = null;
         const OBSERVER_TIMEOUT_MS = 90000;
+        const MAX_SNAPSHOT_SAMPLES = 8;
+
+        function resolveTargetBubble(assistantBubbles) {
+            if (targetBubble && document.contains(targetBubble)) {
+                return targetBubble;
+            }
+
+            let nextBubble = null;
+            for (let index = assistantBubbles.length - 1; index >= 0; index -= 1) {
+                const bubble = assistantBubbles[index];
+                const baselineText = baselineBubbleTexts.get(bubble);
+                if (baselineText === undefined || (bubble.innerText.length > baselineText.length && bubble.innerText.startsWith(baselineText))) {
+                    nextBubble = bubble;
+                    targetBaselineText = baselineText || "";
+                    break;
+                }
+            }
+
+            if (!nextBubble) {
+                return null;
+            }
+
+            targetBubble = nextBubble;
+            lastLength = targetBaselineText.length;
+            return targetBubble;
+        }
 
         const observer = new MutationObserver(() => {
-            const assistantBubbles = document.querySelectorAll('[data-testid="markdown-reply"][data-message-type="Chat"]');
+            const assistantBubbles = Array.from(document.querySelectorAll(assistantBubbleSelector));
             if (assistantBubbles.length === 0) return;
 
-            const targetBubble = assistantBubbles[assistantBubbles.length - 1];
-            const currentFullText = targetBubble.innerText;
+            const activeBubble = resolveTargetBubble(assistantBubbles);
+            if (!activeBubble) return;
 
-            if (currentFullText.length > lastLength) {
+            const currentFullText = activeBubble.innerText;
+
+            if (diagnosticsEnabled) {
+                snapshotCount += 1;
+                if (firstTextSnapshot === null) {
+                    firstTextSnapshot = currentFullText;
+                }
+                snapshotSamples.push({
+                    elapsedMs: Date.now() - captureStartedAt,
+                    textLength: currentFullText.length,
+                    prefix: currentFullText.slice(0, 100),
+                    suffix: currentFullText.slice(-100)
+                });
+                if (snapshotSamples.length > MAX_SNAPSHOT_SAMPLES) {
+                    snapshotSamples.shift();
+                }
+            }
+
+            if (currentFullText.startsWith(targetBaselineText) && currentFullText.length > lastLength) {
                 const delta = currentFullText.substring(lastLength);
                 lastLength = currentFullText.length;
                 hasReceivedContent = true;
+                emittedChunkCount += 1;
+                emittedTextLength += delta.length;
 
-                ws.send(JSON.stringify({ type: "CHUNK", text: delta }));
+                sendMessage({ type: "CHUNK", text: delta });
             }
 
             if (!hasReceivedContent) return;
@@ -111,7 +189,28 @@
             clearTimeout(timeoutHandle);
             observer.disconnect();
             console.log(reason);
-            ws.send(JSON.stringify({ type: "DONE" }));
+            if (diagnosticsEnabled) {
+                const assistantBubbles = Array.from(document.querySelectorAll(assistantBubbleSelector));
+                const finalText = targetBubble && document.contains(targetBubble) ? targetBubble.innerText : null;
+                const attributes = targetBubble
+                    ? Array.from(targetBubble.attributes, (attribute) => [attribute.name, attribute.value])
+                    : [];
+                sendObservation({
+                    phase: "capture_summary",
+                    reason: reason.indexOf("timed out") >= 0 ? "timeout" : "complete",
+                    bubbleCount: assistantBubbles.length,
+                    targetBubbleIndex: targetBubble ? assistantBubbles.indexOf(targetBubble) : -1,
+                    targetAttributes: attributes,
+                    baselineTextLength: targetBaselineText.length,
+                    firstTextSnapshot: firstTextSnapshot,
+                    finalText: finalText,
+                    snapshotCount: snapshotCount,
+                    snapshotSamples: snapshotSamples,
+                    emittedChunkCount: emittedChunkCount,
+                    emittedTextLength: emittedTextLength
+                });
+            }
+            sendMessage({ type: "DONE" });
         }
 
         const timeoutHandle = setTimeout(() => {

@@ -81,6 +81,7 @@ http://127.0.0.1:8000/mcp
 
 The server exposes one tool, `AskM365Copilot`.
 
+
 ## Architecture Notes
 
 - **Single WebSocket reader** -- One coroutine reads all incoming browser messages into an `asyncio.Queue`, eliminating competing-reader race conditions.
@@ -88,6 +89,11 @@ The server exposes one tool, `AskM365Copilot`.
 - **Observer lifecycle** -- The MutationObserver includes a content-received guard (prevents premature completion), a 500ms debounce, and a 90-second safety timeout.
 - **Single local listener** -- The OpenAI-compatible API, MCP HTTP endpoint, and browser WebSocket all share one local server.
 - **Shared MCP definition** -- `mcp_server.py` defines the MCP server once, and `server.py` exposes that server over HTTP.
+
+## TODO
+
+- Reproduce the reported stale-response case across sequential real MCP calls and compare each returned answer with the diagnostic `finalText` and emitted text, including the reported `+1`/`+2` markers.
+- Add regression coverage for reused assistant bubbles and newly inserted bubbles.
 
 ## Project Structure
 

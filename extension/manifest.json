@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "M365 Copilot Chat Bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Connects M365 Copilot Chat to the local bridge server for prompt automation.",
   "permissions": [
     "declarativeNetRequest",
